@@ -1,14 +1,10 @@
 use crate::functions_by_type::FunctionsByType;
 use either::Either;
-<<<<<<< HEAD
-use llvm_ir::{Constant, Instruction, Module, Operand, Terminator, Type};
-=======
 use llvm_ir::{
     instruction::{Call, InlineAssembly},
     terminator::Invoke,
     Constant, Instruction, Module, Operand, Terminator, TypeRef,
 };
->>>>>>> upstream/main
 use petgraph::prelude::*;
 
 /// The call graph for the analyzed `Module`(s): which functions may call which
@@ -23,6 +19,10 @@ pub struct CallGraph<'m> {
 }
 
 impl<'m> CallGraph<'m> {
+    pub fn inner(&self) -> &DiGraphMap<&'m str, ()> {
+        &self.graph
+    }
+
     pub(crate) fn new(
         modules: impl IntoIterator<Item = &'m Module>,
         functions_by_type: &FunctionsByType<'m>,
@@ -66,93 +66,13 @@ impl<'m> CallGraph<'m> {
             for f in &module.functions {
                 graph.add_node(&f.name); // just to ensure all functions end up getting nodes in the graph by the end
                 for bb in &f.basic_blocks {
-                    if let Terminator::Invoke(call) = &bb.term {
-                        match &call.function {
-                            Either::Right(Operand::ConstantOperand(cref)) => {
-                                match cref.as_ref() {
-                                    Constant::GlobalReference { name, .. } => {
-                                        graph.add_edge(&f.name, name, ());
-                                    }
-                                    _ => {
-                                        // a constant function pointer.
-                                        // Assume that this function pointer could point
-                                        // to any function in the current module that has
-                                        // the appropriate type
-                                        let func_ty = match module.type_of(&call.function).as_ref() {
-                                            Type::PointerType { pointee_type, .. } => pointee_type.clone(),
-                                            ty => panic!("Expected function pointer to have pointer type, but got {:?}", ty),
-                                        };
-                                        for target in
-                                            functions_by_type.functions_with_type(&func_ty)
-                                        {
-                                            graph.add_edge(&f.name, target, ());
-                                        }
-                                    }
-                                }
-                            }
-                            Either::Right(_) => {
-                                // Assume that this function pointer could point to any
-                                // function in the current module that has the
-                                // appropriate type
-                                let func_ty = match module.type_of(&call.function).as_ref() {
-                                    Type::PointerType { pointee_type, .. } => pointee_type.clone(),
-                                    ty => panic!("Expected function pointer to have pointer type, but got {:?}", ty),
-                                };
-                                for target in functions_by_type.functions_with_type(&func_ty) {
-                                    graph.add_edge(&f.name, target, ());
-                                }
-                            }
-                            Either::Left(_) => {} // ignore calls to inline assembly
-                        }
-                    }
-
                     for inst in &bb.instrs {
                         if let Instruction::Call(call) = inst {
-<<<<<<< HEAD
-                            match &call.function {
-                                Either::Right(Operand::ConstantOperand(cref)) => {
-                                    match cref.as_ref() {
-                                        Constant::GlobalReference { name, .. } => {
-                                            graph.add_edge(&f.name, name, ());
-                                        }
-                                        _ => {
-                                            // a constant function pointer.
-                                            // Assume that this function pointer could point
-                                            // to any function in the current module that has
-                                            // the appropriate type
-                                            let func_ty = match module.type_of(&call.function).as_ref() {
-                                                Type::PointerType { pointee_type, .. } => pointee_type.clone(),
-                                                ty => panic!("Expected function pointer to have pointer type, but got {:?}", ty),
-                                            };
-                                            for target in
-                                                functions_by_type.functions_with_type(&func_ty)
-                                            {
-                                                graph.add_edge(&f.name, target, ());
-                                            }
-                                        }
-                                    }
-                                }
-                                Either::Right(_) => {
-                                    // Assume that this function pointer could point to any
-                                    // function in the current module that has the
-                                    // appropriate type
-                                    let func_ty = match module.type_of(&call.function).as_ref() {
-                                        Type::PointerType { pointee_type, .. } => pointee_type.clone(),
-                                        ty => panic!("Expected function pointer to have pointer type, but got {:?}", ty),
-                                    };
-                                    for target in functions_by_type.functions_with_type(&func_ty) {
-                                        graph.add_edge(&f.name, target, ());
-                                    }
-                                }
-                                Either::Left(_) => {} // ignore calls to inline assembly
-                            }
-=======
                             add_edge_for_call(
                                 &mut graph,
                                 &f.name,
                                 CallOrInvoke::Call { call, module },
                             );
->>>>>>> upstream/main
                         }
                     }
                     if let Terminator::Invoke(invoke) = &bb.term {
@@ -204,10 +124,6 @@ impl<'m> CallGraph<'m> {
         self.graph
             .neighbors_directed(func_name, Direction::Outgoing)
     }
-
-    pub fn inner(&self) -> &DiGraphMap<&'m str, ()> {
-        &self.graph
-    }
 }
 
 enum CallOrInvoke<'a> {
@@ -253,6 +169,5 @@ impl<'a> CallOrInvoke<'a> {
             Self::Call { call, .. } => call.function_ty.clone(),
             Self::Invoke { invoke, .. } => invoke.function_ty.clone(),
         }
->>>>>>> upstream/main
     }
 }
