@@ -1,6 +1,14 @@
 use crate::functions_by_type::FunctionsByType;
 use either::Either;
+<<<<<<< HEAD
 use llvm_ir::{Constant, Instruction, Module, Operand, Terminator, Type};
+=======
+use llvm_ir::{
+    instruction::{Call, InlineAssembly},
+    terminator::Invoke,
+    Constant, Instruction, Module, Operand, Terminator, TypeRef,
+};
+>>>>>>> upstream/main
 use petgraph::prelude::*;
 
 /// The call graph for the analyzed `Module`(s): which functions may call which
@@ -21,7 +29,39 @@ impl<'m> CallGraph<'m> {
     ) -> Self {
         let mut graph: DiGraphMap<&'m str, ()> = DiGraphMap::new();
 
-        // Find all call instructions and add the appropriate edges
+        let add_edge_for_call = |graph: &mut DiGraphMap<_, _>,
+                                 caller: &'m str,
+                                 call: CallOrInvoke<'m>| {
+            match call.callee() {
+                Either::Right(Operand::ConstantOperand(cref)) => {
+                    match cref.as_ref() {
+                        Constant::GlobalReference { name, .. } => {
+                            graph.add_edge(caller, name, ());
+                        }
+                        _ => {
+                            // a constant function pointer.
+                            // Assume that this function pointer could point
+                            // to any function in the current module that has
+                            // the appropriate type
+                            for target in functions_by_type.functions_with_type(&call.callee_ty()) {
+                                graph.add_edge(caller, target, ());
+                            }
+                        }
+                    }
+                }
+                Either::Right(_) => {
+                    // Assume that this function pointer could point to any
+                    // function in the current module that has the
+                    // appropriate type
+                    for target in functions_by_type.functions_with_type(&call.callee_ty()) {
+                        graph.add_edge(caller, target, ());
+                    }
+                }
+                Either::Left(_) => {} // ignore calls to inline assembly
+            }
+        };
+
+        // Find all call (and Invoke) instructions and add the appropriate edges
         for module in modules {
             for f in &module.functions {
                 graph.add_node(&f.name); // just to ensure all functions end up getting nodes in the graph by the end
@@ -68,6 +108,7 @@ impl<'m> CallGraph<'m> {
 
                     for inst in &bb.instrs {
                         if let Instruction::Call(call) = inst {
+<<<<<<< HEAD
                             match &call.function {
                                 Either::Right(Operand::ConstantOperand(cref)) => {
                                     match cref.as_ref() {
@@ -105,7 +146,21 @@ impl<'m> CallGraph<'m> {
                                 }
                                 Either::Left(_) => {} // ignore calls to inline assembly
                             }
+=======
+                            add_edge_for_call(
+                                &mut graph,
+                                &f.name,
+                                CallOrInvoke::Call { call, module },
+                            );
+>>>>>>> upstream/main
                         }
+                    }
+                    if let Terminator::Invoke(invoke) = &bb.term {
+                        add_edge_for_call(
+                            &mut graph,
+                            &f.name,
+                            CallOrInvoke::Invoke { invoke, module },
+                        );
                     }
                 }
             }
@@ -152,5 +207,52 @@ impl<'m> CallGraph<'m> {
 
     pub fn inner(&self) -> &DiGraphMap<&'m str, ()> {
         &self.graph
+    }
+}
+
+enum CallOrInvoke<'a> {
+    Call {
+        #[cfg_attr(feature = "llvm-15-or-greater", allow(dead_code))]
+        module: &'a Module,
+        call: &'a Call,
+    },
+    Invoke {
+        #[cfg_attr(feature = "llvm-15-or-greater", allow(dead_code))]
+        module: &'a Module,
+        invoke: &'a Invoke,
+    },
+}
+
+impl<'a> CallOrInvoke<'a> {
+    #[cfg(feature = "llvm-14-or-lower")]
+    fn module(&self) -> &'a Module {
+        match self {
+            Self::Call { module, .. } => module,
+            Self::Invoke { module, .. } => module,
+        }
+    }
+
+    fn callee(&self) -> &'a Either<InlineAssembly, Operand> {
+        match self {
+            Self::Call { call, .. } => &call.function,
+            Self::Invoke { invoke, .. } => &invoke.function,
+        }
+    }
+
+    fn callee_ty(&self) -> TypeRef {
+        #[cfg(feature = "llvm-14-or-lower")]
+        match self.module().type_of(self.callee()).as_ref() {
+            llvm_ir::Type::PointerType { pointee_type, .. } => pointee_type.clone(),
+            ty => panic!(
+                "Expected function pointer to have pointer type, but got {:?}",
+                ty
+            ),
+        }
+        #[cfg(feature = "llvm-15-or-greater")]
+        match self {
+            Self::Call { call, .. } => call.function_ty.clone(),
+            Self::Invoke { invoke, .. } => invoke.function_ty.clone(),
+        }
+>>>>>>> upstream/main
     }
 }
